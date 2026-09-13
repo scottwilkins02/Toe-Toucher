@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Toe Touch Tracker</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--ink:#172033;--muted:#6b7280;--line:#e5e7eb;--accent:#2563eb;--good:#059669;--danger:#dc2626}
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+header{background:#111827;color:#fff;padding:24px 18px 20px} h1{margin:0;font-size:28px} header p{margin:5px 0 0;color:#cbd5e1}
+main{max-width:720px;margin:auto;padding:16px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:0 2px 10px #00000008}
+.hero{display:flex;justify-content:space-between;align-items:flex-end;gap:15px}.big{font-size:48px;font-weight:750;line-height:1}.unit{font-size:18px;color:var(--muted);margin-left:5px}.label{color:var(--muted);font-size:14px;margin-bottom:7px}
+input,button{font:inherit} input[type=number],input[type=date],input[type=text]{width:100%;padding:13px;border:1px solid #d1d5db;border-radius:10px;background:#fff;color:var(--ink);font-size:17px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full{grid-column:1/-1}
+button{border:0;border-radius:10px;padding:13px 16px;font-weight:650;cursor:pointer}.primary{background:var(--accent);color:#fff;width:100%;font-size:17px}.secondary{background:#eef2ff;color:#1e40af}.danger{background:#fee2e2;color:#991b1b}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat{background:#f8fafc;border-radius:12px;padding:12px}.stat b{font-size:20px}.stat small{display:block;color:var(--muted);margin-top:3px}
+.chart{height:230px;position:relative}.chart svg{width:100%;height:100%;overflow:visible}.axis{font-size:11px;fill:#9ca3af}.empty{color:var(--muted);text-align:center;padding:45px 10px}
+.entry{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}.entry:last-child{border-bottom:0}.entry strong{font-size:18px}.entry small{color:var(--muted)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.note{font-size:13px;color:var(--muted);line-height:1.45}
+@media(max-width:520px){.grid{grid-template-columns:1fr}.full{grid-column:auto}.stats{grid-template-columns:1fr 1fr}.stats .stat:last-child{grid-column:1/-1}}
+</style>
+</head>
+<body>
+<header><h1>Toe Touch Tracker</h1><p>Track the distance from your fingertips to the floor.</p></header>
+<main>
+<section class="card">
+  <div class="hero"><div><div class="label">Latest distance</div><div><span class="big" id="latest">—</span><span class="unit">cm</span></div></div><div class="label" id="latestDate"></div></div>
+</section>
+
+<section class="card">
+  <h2>Log a measurement</h2>
+  <div class="grid">
+    <div><label class="label">Distance to floor (cm)</label><input id="distance" type="number" min="0" step="0.1" placeholder="e.g. 12.5"></div>
+    <div><label class="label">Date</label><input id="date" type="date"></div>
+    <div class="full"><label class="label">Optional note</label><input id="note" type="text" maxlength="100" placeholder="e.g. after stretching"></div>
+    <div class="full"><button class="primary" id="add">Add measurement</button></div>
+  </div>
+  <p class="note">Lower is better: 0 cm means your fingertips reach the floor. A negative value can be used if you eventually place your fingertips below floor level, but this tracker keeps normal entry at 0 cm or above.</p>
+</section>
+
+<section class="card">
+<h2>Progress</h2>
+<div class="stats">
+  <div class="stat"><b id="improvement">—</b><small>cm improvement</small></div>
+  <div class="stat"><b id="percent">—</b><small>improvement</small></div>
+  <div class="stat"><b id="best">—</b><small>best distance</small></div>
+</div>
+<div class="chart" id="chart"></div>
+</section>
+
+<section class="card">
+<h2>Measurements</h2>
+<div id="list"><div class="empty">No measurements yet.</div></div>
+<div class="actions">
+<button class="secondary" id="export">Export data</button>
+<button class="danger" id="clear">Delete all</button>
+</div>
+</section>
+</main>
+
+<script>
+const KEY="toeTouchTrackerV1";
+let data=JSON.parse(localStorage.getItem(KEY)||"[]");
+const $=id=>document.getElementById(id);
+$("date").value=new Date().toISOString().slice(0,10);
+
+function save(){localStorage.setItem(KEY,JSON.stringify(data)); render();}
+function sorted(){return [...data].sort((a,b)=>a.date.localeCompare(b.date)||a.created-b.created)}
+function fmtDate(d){return new Date(d+"T12:00:00").toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})}
+function render(){
+ const s=sorted();
+ const latest=s[s.length-1];
+ $("latest").textContent=latest?latest.distance.toFixed(1):"—";
+ $("latestDate").textContent=latest?fmtDate(latest.date):"";
+ if(s.length>=2){
+   const first=s[0].distance, last=s[s.length-1].distance, imp=first-last;
+   $("improvement").textContent=(imp>=0?"+":"")+imp.toFixed(1);
+   $("percent").textContent=(first?((imp/first)*100).toFixed(1):"0")+"%";
+ } else {$("improvement").textContent="—";$("percent").textContent="—"}
+ $("best").textContent=s.length?Math.min(...s.map(x=>x.distance)).toFixed(1):"—";
+ renderChart(s); renderList(s);
+}
+function renderChart(s){
+ const el=$("chart"); if(!s.length){el.innerHTML='<div class="empty">Add at least one measurement to see your progress.</div>';return}
+ const w=el.clientWidth||600,h=220,p=34;
+ const vals=s.map(x=>x.distance), min=Math.min(...vals), max=Math.max(...vals), pad=Math.max(2,(max-min)*.18);
+ const lo=min-pad, hi=max+pad, X=i=>p+(i*(w-2*p)/Math.max(1,s.length-1)), Y=v=p+(v-lo)*(h-2*p)/(hi-lo);
+ let path=s.map((x,i)=>(i?"L":"M")+X(i)+" "+Y(x.distance)).join(" ");
+ let dots=s.map((x,i)=>`<circle cx="${X(i)}" cy="${Y(x.distance)}" r="4.5"></circle>`).join("");
+ let labels=s.map((x,i)=>i===0||i===s.length-1?`<text x="${X(i)}" y="${h-5}" text-anchor="${i?'end':'start'}" class="axis">${fmtDate(x.date)}</text>`:"").join("");
+ el.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><line x1="${p}" y1="${p}" x2="${p}" y2="${h-p}" stroke="#e5e7eb"/><line x1="${p}" y1="${h-p}" x2="${w-p}" y2="${h-p}" stroke="#e5e7eb"/><path d="${path}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${dots}${labels}<text x="8" y="${p+4}" class="axis">${hi.toFixed(1)} cm</text><text x="8" y="${h-p}" class="axis">${lo.toFixed(1)} cm</text></svg>`;
+}
+function renderList(s){
+ $("list").innerHTML=s.length?s.slice().reverse().map((x,i)=>`<div class="entry"><div><strong>${x.distance.toFixed(1)} cm</strong><br><small>${fmtDate(x.date)}${x.note?" · "+escapeHtml(x.note):""}</small></div><button class="danger" onclick="removeEntry('${x.id}')">Delete</button></div>`).join(""):'<div class="empty">No measurements yet.</div>';
+}
+function escapeHtml(t){return t.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+window.removeEntry=id=>{data=data.filter(x=>x.id!==id);save()}
+$("add").onclick=()=>{
+ const d=parseFloat($("distance").value);
+ if(!Number.isFinite(d)||d<0){alert("Enter a distance of 0 cm or more.");return}
+ data.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()),distance:d,date:$("date").value||new Date().toISOString().slice(0,10),note:$("note").value.trim(),created:Date.now()});
+ $("distance").value="";$("note").value="";save();
+}
+$("clear").onclick=()=>{if(data.length&&confirm("Delete all measurements? This cannot be undone.")){data=[];save()}}
+$("export").onclick=()=>{
+ const blob=new Blob([JSON.stringify(sorted(),null,2)],{type:"application/json"});
+ const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="toe-touch-progress.json";a.click();URL.revokeObjectURL(a.href);
+}
+window.addEventListener("resize",()=>renderChart(sorted())); render();
+</script>
+</body>
+</html>
